@@ -20,6 +20,17 @@ def split_valid_df(raw_df: pd.DataFrame) -> dict[pd.DataFrame]:
 
     return {'valid' : df, 'invalid' : invalid}
 
+def add_reason_for_invalid_row(rejects_df: pd.DataFrame) -> pd.DataFrame:
+    lat_filter = (rejects_df['lat']<90) & (rejects_df['lat']>-90)
+    lon_filter = (rejects_df['lon']<180) & (rejects_df['lon']>-180)
+    timestamp_filter = (np.isnan(rejects_df['timestamp']))
+
+    rejects_df.loc[~lat_filter | ~lon_filter, 'reason'] = 'invalid coordinates'
+    rejects_df.loc[timestamp_filter, 'reason'] = 'bad timestamp'
+    rejects_df.loc[(~lat_filter | ~lon_filter) & timestamp_filter, 'reason'] = 'invalid coordinates and bad timestamp'
+
+    return rejects_df
+
 def split_by_trip(gdf: pd.DataFrame, max_distance_jump_km: float,  max_timedelta_min: float) -> dict[pd.DataFrame]:
     trip = 0
     trip = int(trip)
@@ -98,6 +109,7 @@ if __name__ == '__main__':
     df = dfs['valid']
     removed_df = dfs['invalid']
 
+    removed_df = add_reason_for_invalid_row(removed_df)
     removed_df.to_csv('rejects.log')
 
     gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs='EPSG:4326')
