@@ -5,7 +5,7 @@ from math import radians, cos, sin, asin, sqrt
 from geojson import FeatureCollection, Feature, LineString, Point
 import random
 import json
-
+import argparse
 
 def split_valid_df(raw_df: pd.DataFrame) -> dict[pd.DataFrame]:
     lat_filter = (raw_df['lat']<90) & (raw_df['lat']>-90)
@@ -20,16 +20,19 @@ def split_valid_df(raw_df: pd.DataFrame) -> dict[pd.DataFrame]:
 
     return {'valid' : df, 'invalid' : invalid}
 
-def split_by_trip(gdf: pd.DataFrame) -> dict[pd.DataFrame]:
+def split_by_trip(gdf: pd.DataFrame, max_distance_jump_km: float,  max_timedelta_min: float) -> dict[pd.DataFrame]:
     trip = 0
+    trip = int(trip)
 
     for index, row in gdf.iterrows():
-        if row['distance'] > 2 or row['timedelta'] > 25:
+        if row['distance'] > max_distance_jump_km or row['timedelta'] > max_timedelta_min:
             gdf.loc[index, 'distance'] = 0
             gdf.loc[index, 'timedelta'] = 0
             trip += 1
         gdf.loc[index,'trip'] = trip
-        
+
+    gdf['trip'] = gdf['trip'].astype(int)
+    
     trips = list(gdf['trip'].unique())
     trips_gdfs = {}
 
@@ -76,8 +79,19 @@ def haversine(point1: Point, point2: Point) -> float:
 
 if __name__ == '__main__':
 
-    raw_df = pd.read_csv("Project Points.csv")
+    parser = argparse.ArgumentParser(
+                        prog='vangeo',
+                        description='see readme.md for guide on how to use.')
+    parser.parse_args
+    parser.add_argument('filename')
+    parser.add_argument('-md', '--max_distance', default=2)
+    parser.add_argument('-mt', '--max_time', default=25)
 
+    args = parser.parse_args()
+    max_distance_jump_km = args.max_distance
+    max_timedelta_min = args.max_time
+
+    raw_df = pd.read_csv(args.filename)
     raw_df['timestamp'] = pd.to_datetime(raw_df['timestamp'], errors='coerce')
 
     dfs = split_valid_df(raw_df)
@@ -97,13 +111,13 @@ if __name__ == '__main__':
     gdf['timedelta'] = timespan.apply(lambda x: x.total_seconds()/60)
     gdf['timedelta'] = gdf['timedelta'].fillna(0)
 
-    trips_gdfs = split_by_trip(gdf)
+    trips_gdfs = split_by_trip(gdf, max_distance_jump_km, max_timedelta_min)
         
     trips_jsons = {}
     feature_list = []
     line_colors = []
     for trip, trip_gdf in trips_gdfs.items():
-        trip_gdf.to_csv(trip, index=False)
+        trip_gdf.to_csv(trip+'.csv', index=False)
         trips_jsons[trip] = get_trip_summary(trip)
 
         random_color = ""
@@ -118,3 +132,7 @@ if __name__ == '__main__':
     feature_collection = FeatureCollection(feature_list)
     with open('trips.geojson', 'w') as f:
         json.dump(feature_collection, f)
+    
+    for trip, trip_json in trips_jsons.items():
+        with open(trip+'.json', 'w') as f:
+            json.dump(trip_json, f)
